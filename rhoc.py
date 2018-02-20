@@ -10,19 +10,25 @@ def localCorrelation(mat1, mat2, max_distance=2):
     corrmat = np.zeros((rows, cols))
     for y in range(0, rows):
         for x in range(0, cols):
-            for i in range(-max_distance, max_distance + 1):
-                for j in range(-max_distance, max_distance + 1):
-                    firstterm = mat1pad[y + max_distance, x + max_distance]
-                    secondterm = mat2pad[y + max_distance - i, x + max_distance - j]
-                    corrmat[y, x] += firstterm * secondterm
+            # Extract the sub image in mat2pad and mult by the corresponding value in mat1
+            subimage = mat2pad[y:y + 2 * max_distance + 1, x:x + 2 * max_distance + 1]
+            prodimage = mat1[y, x] * subimage
+            corrmat[y, x] = prodimage.sum()
 
     return corrmat
 
 
-def calcPaths(frames, max_distance=4, threshold=2.5, recursion_order=5):
-    Y = []
-    for i in range(0, recursion_order-1):
-        Y.append(localCorrelation(frames[i], frames[i + 1], max_distance))
+def calcHOCs(frames, max_distance=4, threshold=2.5, recursion_order=5):
+    (y, x) = frames[0].shape
+    Y = np.zeros((recursion_order, recursion_order, y, x))
+    thingg = frames[:][1]
+    # Store the frames in the first instance of Y (i.e. Y(0)) to allow for recursion
+    Y[0,:,:,:] = frames[:][:]
+
+    for time_idx in range(1, recursion_order - 1):
+        for i in range(0, recursion_order - time_idx-1):
+            unthresholded = localCorrelation(Y[time_idx-1, i, :, :], Y[time_idx-1, i + 1, :, :], max_distance)
+            Y[time_idx, i, :, :] = (unthresholded > threshold).astype(int)
 
     return Y
 
@@ -37,6 +43,6 @@ if __name__ == "__main__":
     frames.append(np.array([[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0]]))
     frames.append(np.array([[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 1]]))
 
-    paths = calcPaths(frames, max_distance=2)
+    paths = calcHOCs(frames, max_distance=3, threshold=.5)
 
     print(frames)
