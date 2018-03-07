@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 from scipy.sparse import rand
+from PIL import Image
 
 def calcScoreAngle(A, alpha, i1, j1, i2, j2):
     gamma = np.abs(np.arctan(j2 / i2) - np.arctan(j1 / i1))
@@ -75,11 +76,13 @@ def findPaths(frames, mask, max_distance=4):
                 # Find where the sub image has non zero points
                 for (subloc_idx, subloc) in enumerate(np.argwhere(subim1 > 0)):
                     temp_track[loc[0] + subloc[0] - 1, loc[1] + subloc[1] - 1] = tracks[track_idx][loc[0], loc[1]]
-                    i1 = loc[0] + subloc[0] - 1
-                    j1 = loc[1] + subloc[1] - 1
+                    # i1 = loc[0] + subloc[0] - 1
+                    # j1 = loc[1] + subloc[1] - 1
+                    i1 = loc[0] + subloc[0]
+                    j1 = loc[1] + subloc[1]
                     # tracks[track_idx][loc[0] + subloc[0] - 1, loc[1] + subloc[1] - 1] = tracks[track_idx][
                     #     loc[0], loc[1]]
-                    # Find where the current track has non zero entries
+                    # Find where the next track has non zero entries
                     for (loc_idx1, loc1) in enumerate(np.argwhere(temp_track > 0)):
                         # Extract the subimage around the current point in the current track in the next frame
                         framepad2 = np.pad(frames[frame_idx+2], max_distance, mode='constant', constant_values=(0))
@@ -91,10 +94,11 @@ def findPaths(frames, mask, max_distance=4):
                             j2 = loc1[1] + subloc1[1] - 1
                             # Score this track
                             move_score = calcScoreMove(9, .5, i1, j1, i2, j2)
-                            angle_score = calcScoreAngle(2.356, 1.91, i1, j1, i2, j2)
+                            angle_score = calcScoreAngle(2.356, 10, i1, j1, i2, j2)
                             # print('Angle Score: ', angle_score)
-                            if move_score > 3:
-                                tracks[track_idx][loc[0] + subloc[0] - 2, loc[1] + subloc[1] - 2] = tracks[track_idx][loc[0], loc[1]]
+                            if move_score > 3 and angle_score > 23.53:
+                                # tracks[track_idx][loc[0] + subloc[0] - 1, loc[1] + subloc[1] - 1] = tracks[track_idx][loc[0], loc[1]]
+                                tracks[track_idx][loc1[0] + subloc[0] - 1, loc1[1] + subloc[1] - 1] = tracks[track_idx][loc[0], loc[1]]
                                 print('Move Score: ', move_score, ' Angle Score: ', angle_score)
 
 
@@ -117,7 +121,7 @@ def findPaths(frames, mask, max_distance=4):
     for track in tracks:
         track_mask = np.copy(track)
         track_mask[track_mask > 0] = 1
-        if np.sum(track_mask) > 4:
+        if np.sum(track_mask) > num_frames - 2:
             real_tracks.append(track[max_distance:-max_distance, max_distance:-max_distance])
 
     return real_tracks
@@ -168,6 +172,7 @@ if __name__ == "__main__":
 
     N = 300
     tracks = []
+    og_tracks = []
     #  ----------  Generate the initial tracks images  ------------
     initial_track = np.zeros((N, N))
 
@@ -183,18 +188,23 @@ if __name__ == "__main__":
     # cv2.waitKey(0)
 
     tracks.append(initial_track)
+    og_tracks.append(initial_track)
 
     for track_idx in range(1, M):
         # cv2.imshow('img', tracks[track_idx - 1])
         # cv2.waitKey()
         next_track = np.zeros_like(initial_track)
+        og_next_track = np.zeros_like(initial_track)
         for (loc_idx, loc) in enumerate(locations):
             if loc[0] < N - 1 and loc[1] < N - 1:
                 next_track[loc[0] + 1, loc[1] + 1] = 1
+                og_next_track[loc[0], loc[1]] = loc_idx + 1
                 locations[loc_idx][0] += 1
                 locations[loc_idx][1] += 1
 
         f4 = np.random.choice([0.00, 1.00], size=(N,N), p=[.99, .01])
+        # Save the og_track first before adding noise
+        og_tracks.append(og_next_track)
         next_track += f4
         next_track[next_track>1] = 1
         tracks.append(next_track)
@@ -213,16 +223,32 @@ if __name__ == "__main__":
 
     paths = findPaths(tracks, last_corr_im, max_distance=4)
 
+
     full_tracks = np.zeros_like(initial_track)
+    # full_og_tracks = np.zeros_like(initial_track)
+
+    full_og_tracks = np.zeros([initial_track.shape[0], initial_track.shape[1], 3])
+
     for track_idx in range(1, M):
         full_tracks += tracks[track_idx]
-        # cv2.imshow('img', tracks[track_idx])
-        # cv2.waitKey()
+
+        full_og_tracks[:,:,0] += np.mod(og_tracks[track_idx]*220, 255)/255.0
+        full_og_tracks[:,:,1] += np.mod(og_tracks[track_idx]*110, 255)/255.0
+        full_og_tracks[:,:,2] += np.mod(og_tracks[track_idx]*40, 255)/255.0
+
+    # im = np.array(full_og_tracks * 255, dtype = np.uint8)
 
     full_paths = np.zeros_like(initial_track)
-    for path in paths:
-        full_paths += path
+    full_paths = np.zeros([initial_track.shape[0], initial_track.shape[1], 3])
+    for path_idx, path in enumerate(paths):
+        currpath = np.copy(path)
+        currpath[currpath > 0] = path_idx + 1
+        full_paths[:,:,0] += np.mod(currpath*220, 255)/255.0
+        full_paths[:,:,1] += np.mod(currpath*110, 255)/255.0
+        full_paths[:,:,2] += np.mod(currpath*40, 255)/255.0
+        # full_paths += path * path_idx
 
     cv2.imshow('tracks', full_tracks)
+    cv2.imshow('og_tracks', full_og_tracks)
     cv2.imshow('paths', full_paths)
     cv2.waitKey()
