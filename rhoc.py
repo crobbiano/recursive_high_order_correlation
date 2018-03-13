@@ -136,18 +136,22 @@ def localCorrelation(mat1, mat2, max_distance=2):
     corrmat = np.zeros((rows, cols))
     for y in range(0, rows):
         for x in range(0, cols):
-            # Extract the sub image in mat2pad and mult by the corresponding value in mat1
-            subimage = mat2pad[y:y + 2 * max_distance + 1, x:x + 2 * max_distance + 1]
-            prodimage = mat1[y, x] * subimage
-            corrmat[y, x] = prodimage.sum()
+            if mat1[y, x] == 1:
+                # Extract the sub image in mat2pad and mult by the corresponding value in mat1
+                subimage = mat2pad[y:y + 2 * max_distance + 1, x:x + 2 * max_distance + 1]
+                # prodimage = mat1[y, x] * subimage
+                # corrmat[y, x] = prodimage.sum()
+                corrmat[y, x] = subimage.sum()
+                if y >= 98 and y <= 102:
+                    1
 
     return corrmat
 
-
+# Update to look at current time and calculate backwards in time instead of previous time and to the future
 def calcHOCs(frames, max_distance=4, threshold=2.5, recursion_order=5, time_steps=50):
     (y, x) = frames[0].shape
     Y = np.zeros((recursion_order, time_steps, y, x))
-    thingg = frames[:][1]
+    # thingg = frames[:][1]
     # Store the frames in the first instance of Y (i.e. Y(0)) to allow for recursion
     Y[0, :, :, :] = frames[0:time_steps][:][:]
 
@@ -155,7 +159,7 @@ def calcHOCs(frames, max_distance=4, threshold=2.5, recursion_order=5, time_step
         for time_idx in range(0, recursion_order - rec_num):
             unthresholded = localCorrelation(Y[rec_num - 1, time_idx, :, :], Y[rec_num - 1, time_idx + 1, :, :],
                                              max_distance)
-            Y[rec_num, time_idx, :, :] = (unthresholded > threshold).astype(int)
+            Y[rec_num, time_idx, :, :] = (unthresholded >= threshold).astype(int)
 
     return Y
 
@@ -170,6 +174,7 @@ if __name__ == "__main__":
     # frames.append(np.array([[0, 0, 0, 1], [0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0]]))
     # frames.append(np.array([[0, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 1]]))
 
+    # Dimensions of the images
     N = 300
     tracks = []
     og_tracks = []
@@ -214,7 +219,7 @@ if __name__ == "__main__":
     # Find the possible paths for the current time.  RHOCs will contain a 1 in the
     # pixel location from image from the last row (representing the kth order correlation)
     # if there could exist a path between time n and time n+k
-    RHOCs = calcHOCs(tracks, max_distance=4, threshold=.1, time_steps=M)
+    RHOCs = calcHOCs(tracks, max_distance=4, threshold=2, time_steps=5)
 
     # For all of the 1's in the last row of RHOCs, calculate the score at each step
     (a, b, c, d) = RHOCs.shape
