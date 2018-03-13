@@ -61,7 +61,7 @@ def findPaths(frames, mask, max_distance=4):
     # Can only provide a score for N-2 frames since we need to look into the future/past
     # Look at the first N-2 frames to decide if we should keep the path
     # Start with first frame (frame 0) and look forwards
-    for frame_idx in range(0, num_frames - 2):
+    for frame_idx in range(num_frames - 1, 1, -1):
         # Get the current frame and pad it
         framepad = np.pad(frames[frame_idx], max_distance, mode='constant', constant_values=(0))
         # Identify all possible single paths going one frame forwards
@@ -71,7 +71,7 @@ def findPaths(frames, mask, max_distance=4):
             # Find where the current track has non zero entries
             for (loc_idx, loc) in enumerate(np.argwhere(tracks[track_idx] > 0)):
                 # Extract the subimage around the current point in the current track in the next frame
-                framepad1 = np.pad(frames[frame_idx+1], max_distance, mode='constant', constant_values=(0))
+                framepad1 = np.pad(frames[frame_idx-1], max_distance, mode='constant', constant_values=(0))
                 subim1 = framepad1[loc[0] - max_distance:loc[0] + max_distance + 1, loc[1] - max_distance:loc[1] + max_distance + 1]
                 # Find where the sub image has non zero points
                 for (subloc_idx, subloc) in enumerate(np.argwhere(subim1 > 0)):
@@ -85,7 +85,7 @@ def findPaths(frames, mask, max_distance=4):
                     # Find where the next track has non zero entries
                     for (loc_idx1, loc1) in enumerate(np.argwhere(temp_track > 0)):
                         # Extract the subimage around the current point in the current track in the next frame
-                        framepad2 = np.pad(frames[frame_idx+2], max_distance, mode='constant', constant_values=(0))
+                        framepad2 = np.pad(frames[frame_idx-2], max_distance, mode='constant', constant_values=(0))
                         subim2 = framepad2[loc1[0] - max_distance:loc1[0] + max_distance + 1, loc1[1] - max_distance:loc1[1] + max_distance + 1]
                         # Find where the sub image has non zero points
                         for (subloc_idx1, subloc1) in enumerate(np.argwhere(subim2 > 0)):
@@ -96,7 +96,7 @@ def findPaths(frames, mask, max_distance=4):
                             move_score = calcScoreMove(9, .5, i1, j1, i2, j2)
                             angle_score = calcScoreAngle(2.356, 10, i1, j1, i2, j2)
                             # print('Angle Score: ', angle_score)
-                            if move_score > 3 and angle_score > 23.53:
+                            if move_score > 3:
                                 # tracks[track_idx][loc[0] + subloc[0] - 1, loc[1] + subloc[1] - 1] = tracks[track_idx][loc[0], loc[1]]
                                 tracks[track_idx][loc1[0] + subloc[0] - 1, loc1[1] + subloc[1] - 1] = tracks[track_idx][loc[0], loc[1]]
                                 print('Move Score: ', move_score, ' Angle Score: ', angle_score)
@@ -127,41 +127,38 @@ def findPaths(frames, mask, max_distance=4):
     return real_tracks
 
 
-def localCorrelation(mat1, mat2, max_distance=2):
-    if mat1.shape != mat2.shape:
-        error('Matrix size mismatch')
+def localCorrelation(mat1, mat2, mat3, max_distance=2):
     (rows, cols) = mat1.shape
     mat1pad = np.pad(mat1, max_distance, mode='constant', constant_values=(0))
     mat2pad = np.pad(mat2, max_distance, mode='constant', constant_values=(0))
-    corrmat = np.zeros((rows, cols))
+    mat3pad = np.pad(mat3, max_distance, mode='constant', constant_values=(0))
+    corrmat = np.zeros_like(mat1)
     for y in range(0, rows):
         for x in range(0, cols):
             if mat1[y, x] == 1:
                 # Extract the sub image in mat2pad and mult by the corresponding value in mat1
-                subimage = mat2pad[y:y + 2 * max_distance + 1, x:x + 2 * max_distance + 1]
-                # prodimage = mat1[y, x] * subimage
-                # corrmat[y, x] = prodimage.sum()
-                corrmat[y, x] = subimage.sum()
-                if y >= 98 and y <= 102:
-                    1
+                subimage2 = mat2pad[y:y + 2 * max_distance + 1, x:x + 2 * max_distance + 1]
+                subimage3 = mat3pad[y:y + 2 * max_distance + 1, x:x + 2 * max_distance + 1]
+                sub2sum = subimage2.sum()
+                sub3sum = subimage3.sum()
+                corrmat[y, x] = sub2sum*sub3sum
 
     return corrmat
 
 # Update to look at current time and calculate backwards in time instead of previous time and to the future
-def calcHOCs(frames, max_distance=4, threshold=2.5, recursion_order=5, time_steps=50):
+def calcHOCs(frames, max_distance=4, threshold=2.5, recursion_order=5, time_steps=5):
     (y, x) = frames[0].shape
     Y = np.zeros((recursion_order, time_steps, y, x))
     # thingg = frames[:][1]
     # Store the frames in the first instance of Y (i.e. Y(0)) to allow for recursion
     Y[0, :, :, :] = frames[0:time_steps][:][:]
 
-    for rec_num in range(1, recursion_order):
-        for time_idx in range(0, recursion_order - rec_num):
-            unthresholded = localCorrelation(Y[rec_num - 1, time_idx, :, :], Y[rec_num - 1, time_idx + 1, :, :],
-                                             max_distance)
-            Y[rec_num, time_idx, :, :] = (unthresholded >= threshold).astype(int)
+    for rec_num in range(0, recursion_order - 1):
+        for time_idx in range(time_steps - 1, rec_num, -1):
+            unthresholded = localCorrelation(Y[rec_num, time_idx, :, :], Y[rec_num, time_idx - 1], Y[rec_num, time_idx - 2, :, :], max_distance)
+            Y[rec_num + 1, time_idx, :, :] = (unthresholded >= threshold).astype(int)
 
-    return Y
+    return Y[recursion_order - 1, time_steps - 1, :, :]
 
 
 if __name__ == "__main__":
@@ -219,11 +216,12 @@ if __name__ == "__main__":
     # Find the possible paths for the current time.  RHOCs will contain a 1 in the
     # pixel location from image from the last row (representing the kth order correlation)
     # if there could exist a path between time n and time n+k
-    RHOCs = calcHOCs(tracks, max_distance=4, threshold=2, time_steps=5)
+    RHOCs = calcHOCs(tracks, max_distance=3, threshold=1, time_steps=10)
 
     # For all of the 1's in the last row of RHOCs, calculate the score at each step
-    (a, b, c, d) = RHOCs.shape
-    last_corr_im = RHOCs[a - 1, 0, :, :]
+    # (a, b, c, d) = RHOCs.shape
+    # last_corr_im = RHOCs[a - 1, 0, :, :]
+    last_corr_im = RHOCs
     # scores = calcScores(frames, last_corr_im, max_distance=1)
 
     paths = findPaths(tracks, last_corr_im, max_distance=4)
