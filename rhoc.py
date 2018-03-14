@@ -4,153 +4,208 @@ import time
 from scipy.sparse import rand
 from PIL import Image
 
-def calcScoreAngle(A, alpha, i1, j1, i2, j2):
-    gamma = np.abs(np.arctan(j2 / i2) - np.arctan(j1 / i1))
-    score = (A - gamma) * alpha
-    return score
 
+class RHOClibs:
+    def __init__(self, Amove=5, alphamove=3, Aangle=5, alphaangle=3, max_distance=4, threshold=1, recursion_order=5, time_steps=5):
+        self.Amove = Amove
+        self.alphamove = alphamove
+        self.Aangle = Aangle
+        self.alphaangle = alphaangle
+        self.max_distance = max_distance
+        self.threshold = threshold
+        self.recursion_order = recursion_order
+        self.time_steps = time_steps
 
-def calcScoreMove(A, alpha, i1, j1, i2, j2):
-    score = (A - np.abs(i2 - i1) - np.abs(j2 - j1)) * alpha
-    return score
+    def calcScoreAngle(self, i1, j1, i2, j2, A=None, alpha=None):
+        if A is None:
+            A = self.Aangle
+        if alpha is None:
+            alpha = self.alphaangle
 
+        gamma = np.abs(np.arctan(j2 / i2) - np.arctan(j1 / i1))
+        score = (A - gamma) * alpha
+        return score
 
-def calcScores(frames, mask, max_distance=4, A1=3, alpha1=1, A2=3, alpha2=1):
-    # Ignore the first frame, and use the mask to determine which points
-    # to start with from the first frame
-    maskpad = np.pad(mask, max_distance, mode='constant', constant_values=(0))
-    onelocations = np.argwhere(maskpad > 0)
-    # FIXME - unhardcode these once things work
-    scores1 = []
-    scores2 = []
-    # for frame_idx in range(1, frames.__len__()):
-    for frame_idx in range(1, 2):
-        frame1pad = np.pad(frames[frame_idx - 1], max_distance, mode='constant', constant_values=(0))
-        frame2pad = np.pad(frames[frame_idx], max_distance, mode='constant', constant_values=(0))
-        for (loc_idx, loc) in enumerate(onelocations):
-            subim2 = frame2pad[onelocations[loc_idx][0] - max_distance:onelocations[loc_idx][0] + max_distance + 1,
-                     onelocations[loc_idx][1] - max_distance:onelocations[loc_idx][1] + max_distance + 1]
-            movedlocations = np.argwhere(subim2 > 0)
-            for (moveloc_idx, moveloc) in enumerate(movedlocations):
-                movescore = calcScoreMove(A1, alpha1, )
+    def calcScoreMove(self, i1, j1, i2, j2, A=None, alpha=None):
+        if A is None:
+            A = self.Amove
+        if alpha is None:
+            alpha = self.alphamove
 
-            scores1.append(movescore)
-            # print(frames[frame_idx])
+        score = (A - np.abs(i2 - i1) - np.abs(j2 - j1)) * alpha
+        return score
 
-    return (0, 0)
+    def calcScores(self, frames, mask, max_distance=None, A1=None, alpha1=None, A2=None, alpha2=None):
+        if A2 is None:
+            A2 = self.Aangle
+        if alpha2 is None:
+            alpha2 = self.alphaangle
+        if A1 is None:
+            A1 = self.Amove
+        if alpha1 is None:
+            alpha1 = self.alphamove
+        if max_distance is None:
+            max_distance = self.max_distance
 
+        # Ignore the first frame, and use the mask to determine which points
+        # to start with from the first frame
+        maskpad = np.pad(mask, max_distance, mode='constant', constant_values=(0))
+        onelocations = np.argwhere(maskpad > 0)
+        # FIXME - unhardcode these once things work
+        scores1 = []
+        scores2 = []
+        # for frame_idx in range(1, frames.__len__()):
+        for frame_idx in range(1, 2):
+            frame1pad = np.pad(frames[frame_idx - 1], max_distance, mode='constant', constant_values=(0))
+            frame2pad = np.pad(frames[frame_idx], max_distance, mode='constant', constant_values=(0))
+            for (loc_idx, loc) in enumerate(onelocations):
+                subim2 = frame2pad[onelocations[loc_idx][0] - max_distance:onelocations[loc_idx][0] + max_distance + 1,
+                         onelocations[loc_idx][1] - max_distance:onelocations[loc_idx][1] + max_distance + 1]
+                movedlocations = np.argwhere(subim2 > 0)
+                for (moveloc_idx, moveloc) in enumerate(movedlocations):
+                    movescore = calcScoreMove(A1, alpha1, )
 
-def findPaths(frames, mask, max_distance=4):
-    # Ignore the first frame, and use the mask to determine which points
-    # to start with from the first frame
-    maskpad = np.pad(mask, max_distance, mode='constant', constant_values=(0))
-    onelocations = np.argwhere(maskpad > 0)
-    num_tracks = onelocations.shape[0]
-    num_frames = frames.__len__()
+                scores1.append(movescore)
+                # print(frames[frame_idx])
 
-    # Need to track the tracks here, it at any point the track stops then we don't want to return it at all
-    # We can identify tracks that stop if the score of the track prevents new points from being added
-    # Need to score based on 3 frames: current, current - 1 and current - 2
-    tracks = []
-    for i in range(0, num_tracks):
-        tracks.append(np.zeros_like(maskpad))
+        return (0, 0)
 
-    # This labels the individual start paths with different values for identification
-    for (tloc_idx, tloc) in enumerate(onelocations):
-        tracks[tloc_idx][tloc[0], tloc[1]] = tloc_idx + 1
+    def findPaths(self, frames, mask, max_distance=None):
+        if max_distance is None:
+            max_distance = self.max_distance
 
-    # Can only provide a score for N-2 frames since we need to look into the future/past
-    # Look at the first N-2 frames to decide if we should keep the path
-    # Start with first frame (frame 0) and look forwards
-    for frame_idx in range(0, num_frames - 2):
-        # Extract the subimage around the current point in the current track in the next frame
-        framepad1 = np.pad(frames[frame_idx+1], max_distance, mode='constant', constant_values=(0))
-        framepad2 = np.pad(frames[frame_idx+2], max_distance, mode='constant', constant_values=(0))
-        # Identify all possible single paths going one frame forwards
-        for track_idx in range(0, num_tracks):
-            # Find where the current frame has non zero entries
-            for (loc_idx, loc) in enumerate(np.argwhere(tracks[track_idx] == track_idx + 1)):
-                subim1 = framepad1[loc[0] - max_distance:loc[0] + max_distance + 1, loc[1] - max_distance:loc[1] + max_distance + 1]
-                # Find where the sub image has non zero points
-                for (subloc_idx, subloc) in enumerate(np.argwhere(subim1 > 0)):
-                    i1 = loc[0] + subloc[0] - max_distance
-                    j1 = loc[1] + subloc[1] - max_distance
-                    # Find where the next frame (+2) has non zero points around the subloc of (+1) frame
-                    subim2 = framepad2[i1 - max_distance:i1 + max_distance + 1, j1 - max_distance:j1 + max_distance + 1]
-                    for (loc_idx1, loc1) in enumerate(np.argwhere(subim2 > 0)):
-                        # i2 = loc[0] + subloc[0] + loc1[0]
-                        # j2 = loc[1] + subloc[1] + loc1[1]
-                        i2 = i1 + loc1[0] - max_distance
-                        j2 = j1 + loc1[1] - max_distance
-                        # Score this track
-                        move_score = calcScoreMove(9, .5, i1, j1, i2, j2)
-                        angle_score = calcScoreAngle(6, 1, i1, j1, i2, j2)
-                        # print('Angle Score: ', angle_score)
-                        if move_score >= 2.5:
-                            # if move_score >= 2.5 and angle_score >= 5.991:
+        # Ignore the first frame, and use the mask to determine which points
+        # to start with from the first frame
+        maskpad = np.pad(mask, max_distance, mode='constant', constant_values=(0))
+        onelocations = np.argwhere(maskpad > 0)
+        num_tracks = onelocations.shape[0]
+        num_frames = frames.__len__()
+
+        # Need to track the tracks here, it at any point the track stops then we don't want to return it at all
+        # We can identify tracks that stop if the score of the track prevents new points from being added
+        # Need to score based on 3 frames: current, current - 1 and current - 2
+        tracks = []
+        for i in range(0, num_tracks):
+            tracks.append(np.zeros_like(maskpad))
+
+        # This labels the individual start paths with different values for identification
+        for (tloc_idx, tloc) in enumerate(onelocations):
+            tracks[tloc_idx][tloc[0], tloc[1]] = tloc_idx + 1
+
+        # Can only provide a score for N-2 frames since we need to look into the future/past
+        # Look at the first N-2 frames to decide if we should keep the path
+        # Start with first frame (frame 0) and look forwards
+        for frame_idx in range(0, num_frames - 2):
+            # Extract the subimage around the current point in the current track in the next frame
+            framepad1 = np.pad(frames[frame_idx + 1], max_distance, mode='constant', constant_values=(0))
+            framepad2 = np.pad(frames[frame_idx + 2], max_distance, mode='constant', constant_values=(0))
+            # Identify all possible single paths going one frame forwards
+            for track_idx in range(0, num_tracks):
+                # Find where the current frame has non zero entries
+                for (loc_idx, loc) in enumerate(np.argwhere(tracks[track_idx] == track_idx + 1)):
+                    subim1 = framepad1[loc[0] - max_distance:loc[0] + max_distance + 1,
+                             loc[1] - max_distance:loc[1] + max_distance + 1]
+                    # Find where the sub image has non zero points
+                    for (subloc_idx, subloc) in enumerate(np.argwhere(subim1 > 0)):
+                        i1 = loc[0] + subloc[0] - max_distance
+                        j1 = loc[1] + subloc[1] - max_distance
+                        # Find where the next frame (+2) has non zero points around the subloc of (+1) frame
+                        subim2 = framepad2[i1 - max_distance:i1 + max_distance + 1,
+                                 j1 - max_distance:j1 + max_distance + 1]
+                        for (loc_idx1, loc1) in enumerate(np.argwhere(subim2 > 0)):
+                            # i2 = loc[0] + subloc[0] + loc1[0]
+                            # j2 = loc[1] + subloc[1] + loc1[1]
+                            i2 = i1 + loc1[0] - max_distance
+                            j2 = j1 + loc1[1] - max_distance
+                            # Score this track
+                            move_score = self.calcScoreMove(A=self.Amove,
+                                                            alpha=self.alphamove,
+                                                            i1=i1,
+                                                            j1=j1,
+                                                            i2=i2,
+                                                            j2=j2)
+                            angle_score = self.calcScoreAngle(A=self.Aangle,
+                                                              alpha=self.alphaangle,
+                                                              i1=i1,
+                                                              j1=j1,
+                                                              i2=i2,
+                                                              j2=j2)
+                            # FIXME - need to collect all scores for possible paths and select the highest valued one
                             # if angle_score >= 23.56 and move_score >= 3.5:
-                            # tracks[track_idx][loc[0] + subloc[0], loc[1] + subloc[1]] = tracks[track_idx][loc[0], loc[1]]
-                            tracks[track_idx][i1, j1] = track_idx + 1
-                            # cv2.imshow('fake', tracks[track_idx])
-                            # cv2.waitKey(0)
-                            # tracks[track_idx][loc1[0] + subloc[0] - 1, loc1[1] + subloc[1] - 1] = tracks[track_idx][loc[0], loc[1]]
-                            print('Move Score: ', move_score, ' Angle Score: ', angle_score)
+                            if move_score >= 2.7:
+                                tracks[track_idx][i1, j1] = track_idx + 1
+                                # cv2.imshow('fake', tracks[track_idx])
+                                # cv2.waitKey(0)
+                                # print('Move Score: ', move_score, ' Angle Score: ', angle_score)
 
-    # for frame_idx in range(1, num_frames):
-    #     # print(frames[frame_idx])
-    #     frame2pad = np.pad(frames[frame_idx], max_distance, mode='constant', constant_values=(0))
-    #     for track_idx in range(0, num_tracks):
-    #         for (loc_idx, loc) in enumerate(np.argwhere(tracks[track_idx] > 0)):
-    #             subim2 = frame2pad[loc[0] - max_distance:loc[0] + max_distance + 1,
-    #                      loc[1] - max_distance:loc[1] + max_distance + 1]
-    #             for (subloc_idx, subloc) in enumerate(np.argwhere(subim2 > 0)):
-    #                 tracks[track_idx][loc[0] + subloc[0] - 1, loc[1] + subloc[1] - 1] = tracks[track_idx][
-    #                     loc[0], loc[1]]
+        # Un-pads the tracks
+        real_tracks = []
+        for track in tracks:
+            track_mask = np.copy(track)
+            track_mask[track_mask > 0] = 1
+            if np.sum(track_mask) > num_frames - 1:
+                real_tracks.append(track[max_distance:-max_distance, max_distance:-max_distance])
 
-    # Un-pads the tracks
-    real_tracks = []
-    for track in tracks:
-        track_mask = np.copy(track)
-        track_mask[track_mask > 0] = 1
-        if np.sum(track_mask) > num_frames - 1:
-            real_tracks.append(track[max_distance:-max_distance, max_distance:-max_distance])
+        return real_tracks
 
-    return real_tracks
+    def localCorrelation(self, mat1, mat2, mat3, max_distance=None):
+        if max_distance is None:
+            max_distance = self.max_distance
 
-def localCorrelation(mat1, mat2, mat3, max_distance=2):
-    (rows, cols) = mat1.shape
-    mat1pad = np.pad(mat1, max_distance, mode='constant', constant_values=(0))
-    mat2pad = np.pad(mat2, max_distance, mode='constant', constant_values=(0))
-    mat3pad = np.pad(mat3, 2*max_distance, mode='constant', constant_values=(0))
-    corrmat = np.zeros_like(mat1)
-    for y in range(0, rows):
-        for x in range(0, cols):
-            if mat1[y, x] == 1:
-                # Extract the sub image in mat2pad and mult by the corresponding value in mat1
-                subimage2 = mat2pad[y:y + 2 * max_distance + 1, x:x + 2 * max_distance + 1]
-                subimage3 = mat3pad[y:y + 4 * max_distance + 1, x:x + 4 * max_distance + 1]
-                sub2sum = subimage2.sum()
-                sub3sum = subimage3.sum()
-                corrmat[y, x] = sub2sum*sub3sum
+        (rows, cols) = mat1.shape
+        mat1pad = np.pad(mat1, max_distance, mode='constant', constant_values=(0))
+        mat2pad = np.pad(mat2, max_distance, mode='constant', constant_values=(0))
+        mat3pad = np.pad(mat3, 2 * max_distance, mode='constant', constant_values=(0))
+        corrmat = np.zeros_like(mat1)
+        for y in range(0, rows):
+            for x in range(0, cols):
+                if mat1[y, x] == 1:
+                    # Extract the sub image in mat2pad and mult by the corresponding value in mat1
+                    subimage2 = mat2pad[y:y + 2 * max_distance + 1, x:x + 2 * max_distance + 1]
+                    subimage3 = mat3pad[y:y + 4 * max_distance + 1, x:x + 4 * max_distance + 1]
+                    sub2sum = subimage2.sum()
+                    sub3sum = subimage3.sum()
+                    corrmat[y, x] = sub2sum * sub3sum
 
-    return corrmat
+        return corrmat
 
-# Update to look at current time and calculate backwards in time instead of previous time and to the future
-def calcHOCs(frames, max_distance=4, threshold=2.5, recursion_order=5, time_steps=5):
-    (y, x) = frames[0].shape
-    Y = np.zeros((recursion_order, time_steps, y, x))
-    # thingg = frames[:][1]
-    # Store the frames in the first instance of Y (i.e. Y(0)) to allow for recursion
-    Y[0, :, :, :] = frames[0:time_steps][:][:]
+    # Update to look at current time and calculate backwards in time instead of previous time and to the future
+    def calcHOCs(self, frames, max_distance=None, threshold=None, recursion_order=None, time_steps=None):
+        if max_distance is None:
+            max_distance = self.max_distance
+        if threshold is None:
+            threshold = self.threshold
+        if recursion_order is None:
+            recursion_order = self.recursion_order
+        if time_steps is None:
+            time_steps = self.time_steps
 
-    for rec_num in range(0, recursion_order - 1):
-        for time_idx in range(rec_num + 2, time_steps):
-            unthresholded = localCorrelation(Y[rec_num, time_idx - 2, :, :], Y[rec_num, time_idx - 1], Y[rec_num, time_idx, :, :], max_distance)
-            Y[rec_num + 1, time_idx, :, :] = (unthresholded >= threshold).astype(int)
+        (y, x) = frames[0].shape
+        Y = np.zeros((recursion_order, time_steps, y, x))
+        # thingg = frames[:][1]
+        # Store the frames in the first instance of Y (i.e. Y(0)) to allow for recursion
+        Y[0, :, :, :] = frames[0:time_steps][:][:]
 
-    return Y[recursion_order - 1, time_steps - 2, :, :]
+        for rec_num in range(0, recursion_order - 1):
+            # for time_idx in range(0, time_steps - 2 - rec_num):
+            for time_idx in range(rec_num + 2, time_steps):
+                unthresholded = rhoc_tools.localCorrelation(Y[rec_num, time_idx - 2, :, :], Y[rec_num, time_idx - 1],
+                                                 Y[rec_num, time_idx, :, :], max_distance)
+                Y[rec_num + 1, time_idx, :, :] = (unthresholded >= threshold).astype(int)
+
+        return Y[recursion_order - 1, time_steps - 2, :, :]
+
 
 if __name__ == "__main__":
+    rhoc_tools = RHOClibs(Amove=9,
+                          alphamove=.5,
+                          Aangle=6,
+                          alphaangle=1,
+                          max_distance=3,
+                          threshold=1,
+                          recursion_order=5,
+                          time_steps=10)
+
     N = 300
     tracks = []
     og_tracks = []
@@ -163,7 +218,7 @@ if __name__ == "__main__":
     locations = np.array([[112, 124], [46, 34], [234, 231], [98, 0], [100, 200], [94, 5]])
     for loc in locations:
         initial_track[loc[0], loc[1]] = 1
-    f4 = np.random.choice([0.00, 1.00], size=(N,N), p=[.99, .01])
+    f4 = np.random.choice([0.00, 1.00], size=(N, N), p=[.99, .01])
     initial_track += f4
     # cv2.imshow('f4', f4*255)
     # cv2.imshow('init', initial_track*255)
@@ -190,20 +245,20 @@ if __name__ == "__main__":
                 next_track[loc[0], loc[1]] = 1
                 og_next_track[loc[0], loc[1]] = loc_idx + 1
 
-        f4 = np.random.choice([0.00, 1.00], size=(N,N), p=[.99, .01])
+        f4 = np.random.choice([0.00, 1.00], size=(N, N), p=[.99, .01])
         # Save the og_track first before adding noise
         og_tracks.append(og_next_track)
         next_track += f4
-        next_track[next_track>1] = 1
+        next_track[next_track > 1] = 1
         tracks.append(next_track)
         # print(next_track)
     t1 = time.time()
-    print('Generation done after ', t1-t0, ' seconds')
+    print('Generation done after ', t1 - t0, ' seconds')
     #  ---------- End generate the initial tracks images  ------------
 
     #  ---------- Calculate expected score -----------
-    move_score = calcScoreMove(9, .5, 98, 0, 100, 1)
-    angle_score = calcScoreAngle(6, 1, 98, 0, 100, 1)
+    move_score = rhoc_tools.calcScoreMove(i1=98, j1=0, i2=100, j2=1)
+    angle_score = rhoc_tools.calcScoreAngle(i1=98, j1=0, i2=100, j2=1)
     print('TEMP Move Score: ', move_score, ' Angle Score: ', angle_score)
 
     #  ---------- END Calculate expected score -----------
@@ -212,32 +267,24 @@ if __name__ == "__main__":
     # pixel location from image from the last row (representing the kth order correlation)
     # if there could exist a path between time n and time n+k
     max_distance = 3
-    RHOCs = calcHOCs(tracks, max_distance=max_distance, recursion_order=5, threshold=1, time_steps=10)
+    reversedtracks = list(reversed(tracks))
+    last_corr_im = rhoc_tools.calcHOCs(frames=reversedtracks)
     t2 = time.time()
-    print('RHOCs done after ', t2-t1, ' seconds')
+    print('RHOCs done after ', t2 - t1, ' seconds')
 
-    # For all of the 1's in the last row of RHOCs, calculate the score at each step
-    # (a, b, c, d) = RHOCs.shape
-    # last_corr_im = RHOCs[a - 1, 0, :, :]
-    last_corr_im = RHOCs
-    # scores = calcScores(frames, last_corr_im, max_distance=1)
-
-    paths = findPaths(tracks, last_corr_im, max_distance=max_distance)
+    paths = rhoc_tools.findPaths(frames=reversedtracks, mask=last_corr_im)
     t3 = time.time()
-    print('Paths done after ', t3-t2, ' seconds')
-
+    print('Paths done after ', t3 - t2, ' seconds')
 
     full_tracks = np.zeros_like(initial_track)
-    # full_og_tracks = np.zeros_like(initial_track)
-
     full_og_tracks = np.zeros([initial_track.shape[0], initial_track.shape[1], 3])
 
     for track_idx in range(1, M):
         full_tracks += tracks[track_idx]
 
-        full_og_tracks[:,:,0] += np.mod(og_tracks[track_idx]*220, 255)/255.0
-        full_og_tracks[:,:,1] += np.mod(og_tracks[track_idx]*110, 255)/255.0
-        full_og_tracks[:,:,2] += np.mod(og_tracks[track_idx]*40, 255)/255.0
+        full_og_tracks[:, :, 0] += np.mod(og_tracks[track_idx] * 220, 255) / 255.0
+        full_og_tracks[:, :, 1] += np.mod(og_tracks[track_idx] * 110, 255) / 255.0
+        full_og_tracks[:, :, 2] += np.mod(og_tracks[track_idx] * 40, 255) / 255.0
 
     # im = np.array(full_og_tracks * 255, dtype = np.uint8)
 
@@ -246,15 +293,14 @@ if __name__ == "__main__":
     for path_idx, path in enumerate(paths):
         currpath = np.copy(path)
         currpath[currpath > 0] = path_idx + 1
-        full_paths[:,:,0] += np.mod(currpath*220, 255)/255.0
-        full_paths[:,:,1] += np.mod(currpath*110, 255)/255.0
-        full_paths[:,:,2] += np.mod(currpath*40, 255)/255.0
-        # full_paths += path * path_idx
+        full_paths[:, :, 0] += np.mod(currpath * 220, 255) / 255.0
+        full_paths[:, :, 1] += np.mod(currpath * 110, 255) / 255.0
+        full_paths[:, :, 2] += np.mod(currpath * 40, 255) / 255.0
 
     cv2.imshow('tracks', full_tracks)
-    cv2.moveWindow('tracks',200,200)
+    cv2.moveWindow('tracks', 200, 200)
     cv2.imshow('og_tracks', full_og_tracks)
-    cv2.moveWindow('og_tracks',200,700)
+    cv2.moveWindow('og_tracks', 200, 700)
     cv2.imshow('paths', full_paths)
-    cv2.moveWindow('paths',200,1200)
+    cv2.moveWindow('paths', 200, 1200)
     cv2.waitKey()
