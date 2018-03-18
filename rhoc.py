@@ -189,7 +189,7 @@ class RHOClibs:
         for rec_num in range(0, recursion_order - 1):
             # for time_idx in range(0, time_steps - 2 - rec_num):
             for time_idx in range(rec_num + 2, time_steps):
-                unthresholded = rhoc_tools.localCorrelation(Y[rec_num, time_idx - 2, :, :], Y[rec_num, time_idx - 1],
+                unthresholded = self.localCorrelation(Y[rec_num, time_idx - 2, :, :], Y[rec_num, time_idx - 1],
                                                  Y[rec_num, time_idx, :, :], max_distance)
                 Y[rec_num + 1, time_idx, :, :] = (unthresholded >= threshold).astype(int)
 
