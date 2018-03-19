@@ -6,7 +6,8 @@ from PIL import Image
 
 
 class RHOClibs:
-    def __init__(self, Amove=5, alphamove=3, Aangle=5, alphaangle=3, max_distance=4, threshold=1, recursion_order=5, time_steps=5):
+    def __init__(self, Amove=5, alphamove=3, Aangle=5, alphaangle=3, max_distance=4, threshold=1, recursion_order=5,
+                 time_steps=5):
         self.Amove = Amove
         self.alphamove = alphamove
         self.Aangle = Aangle
@@ -70,7 +71,7 @@ class RHOClibs:
 
         return (0, 0)
 
-    def findPaths(self, frames, mask, max_distance=None):
+    def findPaths(self, frames, mask, max_distance=None, use_score=True):
         if max_distance is None:
             max_distance = self.max_distance
 
@@ -90,7 +91,7 @@ class RHOClibs:
 
         # This labels the individual start paths with different values for identification
         for (tloc_idx, tloc) in enumerate(onelocations):
-            tracks[tloc_idx][tloc[0], tloc[1]] = tloc_idx + 1
+            tracks[tloc_idx][tloc[0]+1, tloc[1]+1] = tloc_idx + 1
 
         # Can only provide a score for N-2 frames since we need to look into the future/past
         # Look at the first N-2 frames to decide if we should keep the path
@@ -101,8 +102,8 @@ class RHOClibs:
             framepad2 = np.pad(frames[frame_idx + 2], max_distance, mode='constant', constant_values=(0))
             # Identify all possible single paths going one frame forwards
             for track_idx in range(0, num_tracks):
-                # Find where the current frame has non zero entries
-                for (loc_idx, loc) in enumerate(np.argwhere(tracks[track_idx] == track_idx + 1)):
+                # Find where the tracks exists (non-zero entries that are coded to the time step)
+                for (loc_idx, loc) in enumerate(np.argwhere(tracks[track_idx] == track_idx + 1 + (frame_idx) / 100)):
                     subim1 = framepad1[loc[0] - max_distance:loc[0] + max_distance + 1,
                              loc[1] - max_distance:loc[1] + max_distance + 1]
                     # Find where the sub image has non zero points
@@ -112,9 +113,10 @@ class RHOClibs:
                         # Find where the next frame (+2) has non zero points around the subloc of (+1) frame
                         subim2 = framepad2[i1 - max_distance:i1 + max_distance + 1,
                                  j1 - max_distance:j1 + max_distance + 1]
-                        for (loc_idx1, loc1) in enumerate(np.argwhere(subim2 > 0)):
-                            # i2 = loc[0] + subloc[0] + loc1[0]
-                            # j2 = loc[1] + subloc[1] + loc1[1]
+                        nonzero = np.argwhere(subim2 > 0)
+                        # scores is (move, angle, i, j)
+                        scores = np.zeros((nonzero.shape[0], 4))
+                        for (loc_idx1, loc1) in enumerate(nonzero):
                             i2 = i1 + loc1[0] - max_distance
                             j2 = j1 + loc1[1] - max_distance
                             # Score this track
@@ -130,42 +132,60 @@ class RHOClibs:
                                                               j1=j1,
                                                               i2=i2,
                                                               j2=j2)
+                            scores[loc_idx1, :] = [move_score, angle_score, i1, j1]
                             # FIXME - need to collect all scores for possible paths and select the highest valued one
                             # if angle_score >= 23.56 and move_score >= 3.5:
-                            if move_score >= 2.7:
-                                tracks[track_idx][i1, j1] = track_idx + 1
-                                # cv2.imshow('fake', tracks[track_idx])
-                                # cv2.waitKey(0)
-                                # print('Move Score: ', move_score, ' Angle Score: ', angle_score)
+                            # if use_score:
+                            #     tracks[track_idx][i1, j1] = track_idx + 1 + (frame_idx + 1) / 100
+                            #     # cv2.imshow('fake', tracks[track_idx])
+                            #     # cv2.waitKey(0)
+                            #     # print('Move Score: ', move_score, ' Angle Score: ', angle_score)
+                            #     if frame_idx is num_frames - 2:
+                            #         # Add in the last track
+                            #         tracks[track_idx][i2, j2] = track_idx + 1 + (frame_idx + 2) / 100
+                            # else:
+                            #     tracks[track_idx][i1, j1] = track_idx + 1 + (frame_idx + 1) / 100
+                            #
+                            #     if frame_idx is num_frames - 2:
+                            #         # Add in the last track
+                            #         tracks[track_idx][i2, j2] = track_idx + 1 + (frame_idx + 2) / 100
+                        # find the largest score and add the point
+                        if nonzero.size:
+                            max_score_idx = np.argmax(scores[:,0])
+                            tracks[track_idx][scores[max_score_idx, 2], scores[max_score_idx, 3]] = track_idx + 1 + (frame_idx + 1) / 100
 
         # Un-pads the tracks
         real_tracks = []
         for track in tracks:
             track_mask = np.copy(track)
             track_mask[track_mask > 0] = 1
-            if np.sum(track_mask) > num_frames - 1:
+            if np.sum(track_mask) > 2:
+            # if np.sum(track_mask) > num_frames - 2:
                 real_tracks.append(track[max_distance:-max_distance, max_distance:-max_distance])
 
         return real_tracks
 
-    def localCorrelation(self, mat1, mat2, mat3, max_distance=None):
+    def localCorrelation(self, mat1, mat2, mat3=None, max_distance=None):
         if max_distance is None:
             max_distance = self.max_distance
 
         (rows, cols) = mat1.shape
         mat1pad = np.pad(mat1, max_distance, mode='constant', constant_values=(0))
         mat2pad = np.pad(mat2, max_distance, mode='constant', constant_values=(0))
-        mat3pad = np.pad(mat3, 2 * max_distance, mode='constant', constant_values=(0))
+        if mat3 is not None:
+            mat3pad = np.pad(mat3, 2 * max_distance, mode='constant', constant_values=(0))
         corrmat = np.zeros_like(mat1)
         for y in range(0, rows):
             for x in range(0, cols):
                 if mat1[y, x] == 1:
                     # Extract the sub image in mat2pad and mult by the corresponding value in mat1
                     subimage2 = mat2pad[y:y + 2 * max_distance + 1, x:x + 2 * max_distance + 1]
-                    subimage3 = mat3pad[y:y + 4 * max_distance + 1, x:x + 4 * max_distance + 1]
                     sub2sum = subimage2.sum()
-                    sub3sum = subimage3.sum()
-                    corrmat[y, x] = sub2sum * sub3sum
+                    corrmat[y, x] = sub2sum
+                    if mat3 is not None:
+                        subimage3 = mat3pad[y:y + 4 * max_distance + 1, x:x + 4 * max_distance + 1]
+                        sub3sum = subimage3.sum()
+                        corrmat[y, x] *= sub3sum
 
         return corrmat
 
@@ -186,14 +206,19 @@ class RHOClibs:
         # Store the frames in the first instance of Y (i.e. Y(0)) to allow for recursion
         Y[0, :, :, :] = frames[0:time_steps][:][:]
 
+        rec_idx = 0
         for rec_num in range(0, recursion_order - 1):
-            # for time_idx in range(0, time_steps - 2 - rec_num):
-            for time_idx in range(rec_num + 2, time_steps):
-                unthresholded = self.localCorrelation(Y[rec_num, time_idx - 2, :, :], Y[rec_num, time_idx - 1],
-                                                 Y[rec_num, time_idx, :, :], max_distance)
+            for time_idx in range(rec_num + 1, time_steps):
+                # unthresholded = self.localCorrelation(Y[rec_num, time_idx - 2, :, :], Y[rec_num, time_idx - 1],
+                #                                       Y[rec_num, time_idx, :, :], max_distance)
+                unthresholded = self.localCorrelation(Y[rec_num, time_idx - 1, :, :], Y[rec_num, time_idx, :, :],
+                                                      max_distance=max_distance)
                 Y[rec_num + 1, time_idx, :, :] = (unthresholded >= threshold).astype(int)
 
-        return Y[recursion_order - 1, time_steps - 2, :, :]
+        # return Y[recursion_order - 1, time_steps - 2, :, :]
+        return self.localCorrelation(Y[recursion_order - 1, time_steps - 2, :, :],
+                                     Y[recursion_order - 1, time_steps - 1, :, :],
+                                     max_distance=max_distance)
 
 
 if __name__ == "__main__":
@@ -218,7 +243,7 @@ if __name__ == "__main__":
     locations = np.array([[112, 124], [46, 34], [234, 231], [98, 0], [100, 200], [94, 5]])
     for loc in locations:
         initial_track[loc[0], loc[1]] = 1
-    f4 = np.random.choice([0.00, 1.00], size=(N, N), p=[.99, .01])
+    f4 = np.random.choice([0.00, 1.00], size=(N, N), p=[.995, .005])
     initial_track += f4
     # cv2.imshow('f4', f4*255)
     # cv2.imshow('init', initial_track*255)
@@ -245,7 +270,7 @@ if __name__ == "__main__":
                 next_track[loc[0], loc[1]] = 1
                 og_next_track[loc[0], loc[1]] = loc_idx + 1
 
-        f4 = np.random.choice([0.00, 1.00], size=(N, N), p=[.99, .01])
+        f4 = np.random.choice([0.00, 1.00], size=(N, N), p=[.995, .005])
         # Save the og_track first before adding noise
         og_tracks.append(og_next_track)
         next_track += f4
