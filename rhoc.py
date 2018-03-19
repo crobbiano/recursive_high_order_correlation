@@ -152,7 +152,7 @@ class RHOClibs:
                         # find the largest score and add the point
                         if nonzero.size:
                             max_score_idx = np.argmax(scores[:,0])
-                            tracks[track_idx][scores[max_score_idx, 2], scores[max_score_idx, 3]] = track_idx + 1 + (frame_idx + 1) / 100
+                            tracks[track_idx][int(scores[max_score_idx, 2]), int(scores[max_score_idx, 3])] = track_idx + 1 + (frame_idx + 1) / 100
 
         # Un-pads the tracks
         real_tracks = []
