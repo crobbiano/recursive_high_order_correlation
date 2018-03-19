@@ -302,10 +302,14 @@ if __name__ == "__main__":
     print('Paths done after ', t3 - t2, ' seconds')
 
     full_tracks = np.zeros_like(initial_track)
+    full_track_horizontal = initial_track.copy()
+    full_track_horizontal = np.hstack((full_track_horizontal, np.ones((initial_track.shape[0], 1))))
     full_og_tracks = np.zeros([initial_track.shape[0], initial_track.shape[1], 3])
 
     for track_idx in range(1, M):
         full_tracks += tracks[track_idx]
+        full_track_horizontal = np.hstack((full_track_horizontal, tracks[track_idx]))
+        full_track_horizontal = np.hstack((full_track_horizontal, np.ones((initial_track.shape[0], 1))))
 
         full_og_tracks[:, :, 0] += np.mod(og_tracks[track_idx] * 220, 255) / 255.0
         full_og_tracks[:, :, 1] += np.mod(og_tracks[track_idx] * 110, 255) / 255.0
@@ -322,7 +326,7 @@ if __name__ == "__main__":
         full_paths[:, :, 1] += np.mod(currpath * 110, 255) / 255.0
         full_paths[:, :, 2] += np.mod(currpath * 40, 255) / 255.0
 
-    cv2.imshow('tracks', full_tracks)
+    cv2.imshow('tracks', full_track_horizontal)
     cv2.moveWindow('tracks', 200, 200)
     cv2.imshow('og_tracks', full_og_tracks)
     cv2.moveWindow('og_tracks', 200, 700)
